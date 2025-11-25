@@ -1,2 +1,2 @@
 # TimeSheet-UI
-TimeSheet UI with Admin and Operator Flow
+This project uses sql.js for SQLite functionality without native modules. Run: npm install && npm start
