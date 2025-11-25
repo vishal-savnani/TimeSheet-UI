@@ -1,1 +1,0 @@
-This project uses sql.js for SQLite functionality without native modules. Run: npm install && npm start
