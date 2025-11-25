@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Admin Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    .sidebar-item:hover { background: rgba(255,255,255,0.1); }
+    .modal-bg { background: rgba(0,0,0,0.45); }
+    .cal-day { width: 42px; height: 42px; display:flex; align-items:center; justify-content:center; margin:2px; border-radius:6px; cursor:pointer; }
+    .marked { background:#3b82f6; color:white; font-weight:bold; }
+    .today { border: 2px solid #1e40af; }
+  </style>
+</head>
+
+<body class="bg-gray-100 h-screen flex">
+
+<!-- ===================== LEFT SIDEBAR ===================== -->
+<div class="w-64 bg-blue-700 text-white flex flex-col">
+  <div class="p-4 text-xl font-bold border-b border-blue-500">Admin Panel</div>
+
+  <div class="p-4 flex-1">
+    <div id="navDashboard" class="sidebar-item p-2 rounded cursor-pointer">📊 Dashboard</div>
+    <div id="navUsers" class="sidebar-item p-2 rounded cursor-pointer">👥 Users</div>
+    <div id="navCompanies" class="sidebar-item p-2 rounded cursor-pointer">🏢 Companies</div>
+    <div id="navTimesheets" class="sidebar-item p-2 rounded cursor-pointer">📝 Timesheets</div>
+    <div id="navCalendar" class="sidebar-item p-2 rounded cursor-pointer">📅 Calendar</div>
+    <div id="navSettings" class="sidebar-item p-2 rounded cursor-pointer">⚙ Settings</div>
+  </div>
+
+  <button id="logoutBtn" class="m-4 bg-red-600 py-2 rounded">Logout</button>
+</div>
+
+<!-- ===================== MAIN CONTENT ===================== -->
+<div class="flex-1 overflow-y-auto p-6">
+
+  <!-- =====================  DASHBOARD  ===================== -->
+  <section id="pageDashboard">
+    <h1 class="text-2xl font-bold mb-4">Dashboard</h1>
+
+    <!-- KPI CARDS -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      <div class="bg-white shadow p-5 rounded">
+        <div class="text-gray-500">Total Users</div>
+        <div id="kpiUsers" class="text-3xl font-bold mt-2">0</div>
+      </div>
+
+      <div class="bg-white shadow p-5 rounded">
+        <div class="text-gray-500">Total Hours (Month)</div>
+        <div id="kpiHours" class="text-3xl font-bold mt-2">0</div>
+      </div>
+
+      <div class="bg-white shadow p-5 rounded">
+        <div class="text-gray-500">Total Billable ₹</div>
+        <div id="kpiAmount" class="text-3xl font-bold mt-2">0</div>
+      </div>
+
+      <div class="bg-white shadow p-5 rounded">
+        <div class="text-gray-500">Operator of Month</div>
+        <div id="kpiTopUser" class="text-xl font-semibold mt-2">—</div>
+      </div>
+    </div>
+
+    <!-- CHARTS -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+      <div class="bg-white p-4 rounded shadow">
+        <h2 class="font-bold mb-2">Hours Per User</h2>
+        <canvas id="chartHoursUser"></canvas>
+      </div>
+
+      <div class="bg-white p-4 rounded shadow">
+        <h2 class="font-bold mb-2">Billable vs Non-Billable</h2>
+        <canvas id="chartBillable"></canvas>
+      </div>
+
+      <div class="bg-white p-4 rounded shadow lg:col-span-2">
+        <h2 class="font-bold mb-2">Monthly Hours Trend</h2>
+        <canvas id="chartMonthly"></canvas>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ===================== USERS PAGE ===================== -->
+  <section id="pageUsers" class="hidden">
+    <h1 class="text-2xl font-bold mb-4">Users</h1>
+
+    <!-- Add User -->
+    <div class="bg-white p-4 rounded shadow max-w-lg mb-6">
+      <h2 class="font-bold mb-2">Create User</h2>
+      <input id="usrName" class="w-full border p-2 rounded mb-2" placeholder="Username" />
+      <input id="usrPass" type="password" class="w-full border p-2 rounded mb-2" placeholder="Password" />
+      <select id="usrRole" class="w-full border p-2 rounded mb-2">
+        <option value="operator">Operator</option>
+        <option value="admin">Admin</option>
+      </select>
+      <select id="usrCompany" class="w-full border p-2 rounded mb-2"></select>
+
+      <button id="btnCreateUser" class="bg-green-600 text-white px-4 py-2 rounded">Create</button>
+      <div id="usrMsg" class="mt-2 text-sm"></div>
+    </div>
+
+    <!-- Users List -->
+    <div id="usersList" class="bg-white shadow rounded p-4"></div>
+  </section>
+
+  <!-- ===================== COMPANIES PAGE ===================== -->
+  <section id="pageCompanies" class="hidden">
+    <h1 class="text-2xl font-bold mb-4">Companies</h1>
+
+    <div class="bg-white p-4 rounded shadow max-w-lg">
+      <input id="compName" class="w-full border p-2 rounded mb-2" placeholder="Company name" />
+      <button id="btnAddCompany" class="bg-blue-600 text-white px-4 py-2 rounded">Add</button>
+    </div>
+
+    <ul id="companyList" class="mt-4 bg-white rounded shadow p-4"></ul>
+  </section>
+
+  <!-- ===================== TIMESHEETS PAGE ===================== -->
+  <section id="pageTimesheets" class="hidden">
+    <h1 class="text-2xl font-bold mb-4">All Timesheets</h1>
+    <div id="tsList" class="bg-white rounded shadow p-4"></div>
+  </section>
+
+  <!-- ===================== CALENDAR PAGE ===================== -->
+  <section id="pageCalendar" class="hidden">
+    <h1 class="text-2xl font-bold mb-4">Calendar (All Users)</h1>
+
+    <div class="flex items-center gap-4 mb-4">
+      <button id="calPrev" class="border px-3 py-1 rounded">«</button>
+      <div id="calMonthLabel" class="font-semibold"></div>
+      <button id="calNext" class="border px-3 py-1 rounded">»</button>
+
+      <select id="calUserFilter" class="border p-1 rounded ml-6"></select>
+    </div>
+
+    <div id="calendarGrid" class="grid grid-cols-7"></div>
+
+    <div id="calEntries" class="mt-4"></div>
+  </section>
+
+  <!-- ===================== SETTINGS PAGE ===================== -->
+  <section id="pageSettings" class="hidden max-w-md bg-white p-6 shadow rounded">
+    <h2 class="text-xl font-bold mb-4">Change Password</h2>
+
+    <input id="setOld" type="password" class="border w-full p-2 rounded mb-2" placeholder="Old password" />
+    <input id="setNew" type="password" class="border w-full p-2 rounded mb-2" placeholder="New password" />
+    <input id="setConfirm" type="password" class="border w-full p-2 rounded mb-2" placeholder="Confirm new password" />
+
+    <button id="setChange" class="bg-indigo-600 text-white px-4 py-2 rounded">Change Password</button>
+    <div id="setMsg" class="mt-2 text-sm"></div>
+  </section>
+
+</div>
+
+<!-- ===================== MODALS SECTION ===================== -->
+
+<!-- Edit User Modal -->
+<div id="modalEditUser" class="hidden fixed inset-0 modal-bg flex items-center justify-center">
+  <div class="bg-white rounded shadow p-5 w-96">
+    <h2 class="font-bold text-lg mb-3">Edit User</h2>
+    <input id="editUsrName" class="border w-full p-2 mb-2 rounded"/>
+    <select id="editUsrRole" class="border w-full p-2 mb-2 rounded">
+      <option value="operator">Operator</option>
+      <option value="admin">Admin</option>
+    </select>
+    <select id="editUsrCompany" class="border w-full p-2 mb-2 rounded"></select>
+
+    <div class="flex justify-between mt-3">
+      <button id="editUsrCancel" class="px-4 py-2 border rounded">Cancel</button>
+      <button id="editUsrSave" class="px-4 py-2 bg-blue-600 text-white rounded">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Reset Password Modal -->
+<div id="modalResetPwd" class="hidden fixed inset-0 modal-bg flex items-center justify-center">
+  <div class="bg-white rounded shadow p-5 w-80">
+    <h2 class="font-bold text-lg mb-3">Reset Password</h2>
+    <input id="resetPwdNew" class="border w-full p-2 rounded mb-2" type="password" placeholder="New password" />
+
+    <div class="flex justify-between mt-3">
+      <button id="resetPwdCancel" class="px-4 py-2 border rounded">Cancel</button>
+      <button id="resetPwdSave" class="px-4 py-2 bg-green-600 text-white rounded">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Timesheet Modal -->
+<div id="modalEditTS" class="hidden fixed inset-0 modal-bg flex items-center justify-center">
+  <div class="bg-white rounded shadow p-5 w-[420px]">
+    <h2 class="font-bold text-lg mb-3">Edit Timesheet</h2>
+
+    <input id="tsEditTask" class="border w-full p-2 mb-2 rounded" placeholder="Task" />
+    <input id="tsEditStart" type="time" class="border w-full p-2 mb-2 rounded" />
+    <input id="tsEditEnd" type="time" class="border w-full p-2 mb-2 rounded" />
+    <input id="tsEditBreak" class="border w-full p-2 mb-2 rounded" placeholder="Break (minutes)" />
+    <input id="tsEditRate" class="border w-full p-2 mb-2 rounded" placeholder="Hourly Rate" />
+
+    <div class="flex justify-between mt-3">
+      <button id="tsEditCancel" class="px-4 py-2 border rounded">Cancel</button>
+      <button id="tsEditSave" class="px-4 py-2 bg-blue-600 text-white rounded">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- JS FILE -->
+<script src="./admin.js"></script>
+
+</body>
+</html>

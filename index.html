@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Timesheet</title>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100">
+  <div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+function TimesheetApp() {
+  const [entries, setEntries] = useState([]);
+  const [companies, setCompanies] = useState([]);
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [showForm, setShowForm] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const user = JSON.parse(localStorage.getItem('user')||'null');
+  if(!user) {
+    // if not logged in, go to login
+    window.location = 'login.html';
+  }
+
+  const [formData, setFormData] = useState({
+    date: new Date().toISOString().split('T')[0],
+    employeeName: user ? user.username : '',
+    companyId: user ? user.company_id : null,
+    taskActivity: '',
+    startTime: '',
+    endTime: '',
+    breakMins: 0,
+    billable: true,
+    ratePerHour: 0,
+  });
+
+  // load companies and entries
+  useEffect(() => {
+    async function loadAll(){
+      try {
+        const comps = await window.electronAPI.companyList();
+        setCompanies(comps || []);
+        if(user.role === 'admin'){
+          const all = await window.electronAPI.timesheetGetAll();
+          // normalize company id/name for display (company may be null)
+          setEntries((all || []).map(r => ({
+            id: r.id,
+            user_id: r.user_id,
+            username: r.username || '',
+            date: r.date,
+            taskActivity: r.task || r.taskActivity || '',
+            startTime: r.start_time || r.startTime || '',
+            endTime: r.end_time || r.endTime || '',
+            breakMins: r.break_minutes || r.breakMins || 0,
+            billable: Boolean(r.billable),
+            ratePerHour: r.rate_per_hour || r.ratePerHour || 0,
+            billableAmount: r.billable_amount || r.billableAmount || 0,
+            company_id: r.company_id || null,
+            companyName: comps.find(c=>c.id===r.company_id)?.company_name || (r.companyName || '')
+          })));
+        } else {
+          const me = await window.electronAPI.timesheetGetByUser(user.id);
+          setEntries((me || []).map(r => ({
+            id: r.id,
+            user_id: r.user_id,
+            username: user.username,
+            date: r.date,
+            taskActivity: r.task || r.taskActivity || '',
+            startTime: r.start_time || r.startTime || '',
+            endTime: r.end_time || r.endTime || '',
+            breakMins: r.break_minutes || r.breakMins || 0,
+            billable: Boolean(r.billable),
+            ratePerHour: r.rate_per_hour || r.ratePerHour || 0,
+            billableAmount: r.billable_amount || r.billableAmount || 0,
+            company_id: r.company_id || null,
+            companyName: comps.find(c=>c.id===r.company_id)?.company_name || ''
+          })));
+        }
+      } catch (err) {
+        console.error('load error', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadAll();
+  }, []);
+
+  // helpers
+  const calculateBillableAmount = (start, end, breakMins, rate, billable) => {
+    if (!billable || !start || !end) return 0;
+    const [sh, sm] = start.split(':').map(Number);
+    const [eh, em] = end.split(':').map(Number);
+    const totalMins = (eh*60 + em) - (sh*60 + sm) - (parseInt(breakMins||0));
+    const hours = totalMins / 60;
+    if(hours <= 0) return 0;
+    return Math.round(hours * (parseFloat(rate)||0) * 100) / 100;
+  };
+
+  const getDaysInMonth = (date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const days = [];
+    for (let i = 0; i < firstDay.getDay(); i++) days.push(null);
+    for (let i = 1; i <= lastDay.getDate(); i++) days.push(new Date(year, month, i));
+    return days;
+  };
+
+  const hasEntryForDate = (date) => {
+    if (!date) return false;
+    const dateStr = date.toISOString().split('T')[0];
+    // for admin entries may include all users; for operator entries only their own are loaded
+    return entries.some(e => e.date === dateStr);
+  };
+
+  const getEntriesForDate = (date) => {
+    if(!date) return [];
+    const dateStr = date.toISOString().split('T')[0];
+    return entries.filter(e => e.date === dateStr);
+  };
+
+  const days = getDaysInMonth(currentDate);
+  const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+  // save entry via IPC
+  const saveEntry = async () => {
+    // validation
+    if(!formData.date || !formData.taskActivity || !formData.startTime || !formData.endTime){
+      alert('Please fill required fields');
+      return;
+    }
+    // start < end
+    const [sh, sm] = formData.startTime.split(':').map(Number);
+    const [eh, em] = formData.endTime.split(':').map(Number);
+    const smins = sh*60 + sm, emins = eh*60 + em;
+    if(emins <= smins){ alert('End must be after start'); return; }
+    if((emins - smins - (parseInt(formData.breakMins||0))) <= 0) { alert('Break too long'); return; }
+
+    const amount = calculateBillableAmount(formData.startTime, formData.endTime, parseInt(formData.breakMins||0), formData.ratePerHour, formData.billable);
+
+    // prepare payload consistent with main.js schema
+    const payload = {
+      user_id: user.id,
+      date: formData.date,
+      task: formData.taskActivity,
+      start_time: formData.startTime,
+      end_time: formData.endTime,
+      break_minutes: parseInt(formData.breakMins||0),
+      billable: formData.billable ? 1 : 0,
+      rate_per_hour: parseFloat(formData.ratePerHour||0),
+      billable_amount: amount,
+      company_id: formData.companyId || null
+    };
+
+    const res = await window.electronAPI.timesheetAdd(payload);
+    if(!res.success){ alert(res.message || 'Save failed'); return; }
+
+    // reload entries from DB to reflect new record (for admin and operator)
+    if(user.role === 'admin'){
+      const all = await window.electronAPI.timesheetGetAll();
+      setEntries((all || []).map(r=>({
+        id: r.id,
+        user_id: r.user_id,
+        username: r.username || '',
+        date: r.date,
+        taskActivity: r.task || '',
+        startTime: r.start_time || '',
+        endTime: r.end_time || '',
+        breakMins: r.break_minutes || 0,
+        billable: Boolean(r.billable),
+        ratePerHour: r.rate_per_hour || 0,
+        billableAmount: r.billable_amount || 0,
+        company_id: r.company_id || null,
+        companyName: companies.find(c=>c.id===r.company_id)?.company_name || ''
+      })));
+    } else {
+      const me = await window.electronAPI.timesheetGetByUser(user.id);
+      setEntries((me || []).map(r=>({
+        id: r.id,
+        user_id: r.user_id,
+        username: user.username,
+        date: r.date,
+        taskActivity: r.task || '',
+        startTime: r.start_time || '',
+        endTime: r.end_time || '',
+        breakMins: r.break_minutes || 0,
+        billable: Boolean(r.billable),
+        ratePerHour: r.rate_per_hour || 0,
+        billableAmount: r.billable_amount || 0,
+        company_id: r.company_id || null,
+        companyName: companies.find(c=>c.id===r.company_id)?.company_name || ''
+      })));
+    }
+
+    // reset form
+    setFormData({
+      date: new Date().toISOString().split('T')[0],
+      employeeName: user.username,
+      companyId: user.company_id || null,
+      taskActivity: '',
+      startTime: '',
+      endTime: '',
+      breakMins: 0,
+      billable: true,
+      ratePerHour: 0,
+    });
+    setShowForm(false);
+  };
+
+  // delete entry
+  const deleteEntry = async (id, ownerId) => {
+    if(!confirm('Delete?')) return;
+    const allowAdmin = (user.role === 'admin');
+    const res = await window.electronAPI.timesheetDelete({ id, userId: user.id, allowAdmin });
+    if(!res.success){ alert(res.message || 'Delete failed'); return; }
+    // reload
+    if(user.role === 'admin'){ 
+      const all = await window.electronAPI.timesheetGetAll();
+      setEntries((all || []).map(r=>({
+        id: r.id,
+        user_id: r.user_id,
+        username: r.username || '',
+        date: r.date,
+        taskActivity: r.task || '',
+        startTime: r.start_time || '',
+        endTime: r.end_time || '',
+        breakMins: r.break_minutes || 0,
+        billable: Boolean(r.billable),
+        ratePerHour: r.rate_per_hour || 0,
+        billableAmount: r.billable_amount || 0,
+        company_id: r.company_id || null,
+        companyName: companies.find(c=>c.id===r.company_id)?.company_name || ''
+      })));
+    } else {
+      const me = await window.electronAPI.timesheetGetByUser(user.id);
+      setEntries((me || []).map(r=>({
+        id: r.id,
+        user_id: r.user_id,
+        username: user.username,
+        date: r.date,
+        taskActivity: r.task || '',
+        startTime: r.start_time || '',
+        endTime: r.end_time || '',
+        breakMins: r.break_minutes || 0,
+        billable: Boolean(r.billable),
+        ratePerHour: r.rate_per_hour || 0,
+        billableAmount: r.billable_amount || 0,
+        company_id: r.company_id || null,
+        companyName: companies.find(c=>c.id===r.company_id)?.company_name || ''
+      })));
+    }
+  };
+
+  const exportToCSV = async () => {
+    const rows = entries;
+    const headers = ['Date', 'Employee Name', 'Company', 'Task', 'Start', 'End', 'Break', 'Billable', 'Rate', 'Amount'];
+    const csv = [headers, ...rows.map(r => [r.date, r.username || user.username, r.companyName || '', r.taskActivity, r.startTime, r.endTime, r.breakMins, r.billable ? 'Yes' : 'No', r.ratePerHour, r.billableAmount])].map(r=>r.join(',')).join('\\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `timesheet_export_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+  };
+
+  if(loading) return <div className="p-6">Loading...</div>;
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
+      <div className="max-w-7xl mx-auto">
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-6 flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-800">Timesheet Manager</h1>
+            <p className="text-gray-500">Logged in as <strong>{user.username}</strong> ({user.role})</p>
+          </div>
+          <div className="flex gap-3">
+            <button onClick={exportToCSV} className="bg-green-600 text-white px-4 py-2 rounded-lg">Export CSV</button>
+            <button onClick={() => { setShowForm(true); setFormData({...formData, employeeName: user.username, companyId: user.company_id || null}); }} className="bg-indigo-600 text-white px-4 py-2 rounded-lg">New Entry</button>
+            <button onClick={() => { localStorage.clear(); window.location='login.html'; }} className="bg-red-600 text-white px-4 py-2 rounded-lg">Logout</button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 bg-white rounded-2xl shadow-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-2xl font-bold">{monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}</h2>
+              <div className="flex gap-2">
+                <button className="px-3 py-1 bg-gray-100 rounded" onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth()-1))}>Previous</button>
+                <button className="px-3 py-1 bg-gray-100 rounded" onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth()+1))}>Next</button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-7 gap-2 mb-2 text-center font-semibold text-gray-600 text-sm">
+              {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => <div key={d}>{d}</div>)}
+            </div>
+
+            <div className="grid grid-cols-7 gap-2">
+              {days.map((day, idx) => (
+                <button
+                  key={idx}
+                  disabled={!day}
+                  onClick={() => day && setSelectedDate(day)}
+                  className={`aspect-square p-2 rounded-lg text-sm font-medium transition relative ${!day ? 'invisible' : ''} ${hasEntryForDate(day) ? 'bg-green-100 text-green-800 border-2 border-green-400' : 'bg-gray-50 text-gray-600 border-2 border-gray-200'} ${day && day.toDateString() === selectedDate.toDateString() ? 'ring-4 ring-indigo-300' : ''} ${day && day.toDateString() === new Date().toDateString() ? 'font-bold' : ''}`}
+                >
+                  {day ? day.getDate() : ''}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-6 text-sm text-gray-600">
+              <span className="inline-flex items-center gap-2 mr-4"><span className="w-4 h-4 bg-green-100 border-2 border-green-400 rounded"></span> Entry Filled</span>
+              <span className="inline-flex items-center gap-2"><span className="w-4 h-4 bg-gray-50 border-2 border-gray-200 rounded"></span> No Entry</span>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-lg p-6">
+            <h2 className="text-xl font-bold mb-4">Entries for {selectedDate.toLocaleDateString()}</h2>
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {getEntriesForDate(selectedDate).length === 0 ? (
+                <div className="text-center py-8 text-gray-400">
+                  <p>No entries for this date</p>
+                </div>
+              ) : (
+                getEntriesForDate(selectedDate).map(entry => (
+                  <div key={entry.id} className="bg-gradient-to-r from-indigo-50 to-blue-50 p-4 rounded-lg border border-indigo-100">
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <div className="font-semibold text-gray-800">{entry.username || user.username}</div>
+                        <div className="text-sm text-gray-600">{entry.companyName || ''}</div>
+                      </div>
+                      <div className="flex gap-2">
+                        { (user.role === 'admin' || (entry.user_id === user.id)) && <button onClick={() => deleteEntry(entry.id, entry.user_id)} className="bg-red-600 text-white px-2 py-1 rounded">Delete</button> }
+                      </div>
+                    </div>
+
+                    <p className="text-sm text-gray-700 mb-2">{entry.taskActivity}</p>
+                    <div className="flex items-center justify-between text-xs text-gray-500">
+                      <span>{entry.startTime} - {entry.endTime} | Break: {entry.breakMins} mins</span>
+                      {entry.billable && <span className="font-semibold text-green-600">₹{entry.billableAmount}</span>}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
+        {showForm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6">
+              <h2 className="text-2xl font-bold text-gray-800 mb-6">New Timesheet Entry</h2>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
+                    <input type="date" value={formData.date} onChange={(e)=>setFormData({...formData, date: e.target.value})} className="w-full px-4 py-2 border rounded" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Employee Name</label>
+                    <input type="text" value={user.username} disabled className="w-full px-4 py-2 border rounded bg-gray-100" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Company</label>
+                  { user.role === 'admin' ? (
+                    <select value={formData.companyId || ''} onChange={(e)=>setFormData({...formData, companyId: e.target.value ? parseInt(e.target.value) : null})} className="w-full px-4 py-2 border rounded">
+                      <option value="">-- Select Company (optional) --</option>
+                      {companies.map(c=> <option key={c.id} value={c.id}>{c.company_name}</option>)}
+                    </select>
+                  ) : (
+                    <input type="text" value={companies.find(c=>c.id===user.company_id)?.company_name || ''} disabled className="w-full px-4 py-2 border rounded bg-gray-100" />
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Task/Activity</label>
+                  <textarea value={formData.taskActivity} onChange={(e)=>setFormData({...formData, taskActivity: e.target.value})} className="w-full px-4 py-2 border rounded" rows="3" />
+                </div>
+
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm text-gray-700 mb-2">Start Time</label>
+                    <input type="time" value={formData.startTime} onChange={(e)=>setFormData({...formData, startTime: e.target.value})} className="w-full px-4 py-2 border rounded" />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-700 mb-2">End Time</label>
+                    <input type="time" value={formData.endTime} onChange={(e)=>setFormData({...formData, endTime: e.target.value})} className="w-full px-4 py-2 border rounded" />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-700 mb-2">Break (Mins)</label>
+                    <input type="number" min="0" value={formData.breakMins} onChange={(e)=>setFormData({...formData, breakMins: e.target.value})} className="w-full px-4 py-2 border rounded" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm text-gray-700 mb-2">Rate (₹/Hr)</label>
+                    <input type="number" min="0" step="0.01" value={formData.ratePerHour} onChange={(e)=>setFormData({...formData, ratePerHour: e.target.value})} className="w-full px-4 py-2 border rounded" />
+                  </div>
+                  <div className="flex items-center">
+                    <label className="flex items-center gap-2">
+                      <input type="checkbox" checked={formData.billable} onChange={(e)=>setFormData({...formData, billable: e.target.checked})} />
+                      <span>Billable</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button onClick={saveEntry} className="flex-1 bg-indigo-600 text-white py-3 rounded">Save Entry</button>
+                  <button onClick={()=>setShowForm(false)} className="flex-1 bg-gray-200 py-3 rounded">Cancel</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.render(<TimesheetApp />, document.getElementById('root'));
+</script>
+</body>
+</html>

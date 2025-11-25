@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Login - Timesheet</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 h-screen flex items-center justify-center">
+  <div class="bg-white p-8 rounded shadow w-full max-w-md">
+    <h2 class="text-2xl font-bold mb-4">Login</h2>
+    <div id="err" class="text-red-600 mb-3 hidden"></div>
+
+    <label class="text-sm text-gray-600">Username</label>
+    <input id="username" placeholder="Username" class="w-full border p-2 mb-3 rounded" />
+
+    <label class="text-sm text-gray-600">Password</label>
+    <input id="password" placeholder="Password" type="password" class="w-full border p-2 mb-3 rounded" />
+
+    <div class="flex gap-2">
+      <button id="btnLogin" class="bg-blue-600 text-white px-4 py-2 rounded">Login</button>
+    </div>
+  </div>
+
+<script>
+document.getElementById('btnLogin').addEventListener('click', doLogin);
+
+async function doLogin(){
+  const u = document.getElementById('username').value.trim();
+  const p = document.getElementById('password').value.trim();
+  const err = document.getElementById('err');
+  err.classList.add('hidden');
+  if(!u || !p){ err.textContent='Please fill both fields'; err.classList.remove('hidden'); return; }
+
+  const res = await window.electronAPI.login({ username: u, password: p });
+  if(!res.success){ err.textContent = res.message || 'Login failed'; err.classList.remove('hidden'); return; }
+
+  // Save user and route
+  localStorage.setItem('user', JSON.stringify(res.user));
+  if(res.user.role === 'admin') window.location = 'admin.html';
+  else window.location = 'operator.html';
+}
+</script>
+</body>
+</html>

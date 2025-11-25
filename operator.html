@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Operator - Timesheet</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .cal-day { width:44px; height:44px; display:inline-flex; align-items:center; justify-content:center; margin:4px; border-radius:8px; transition:transform .08s, box-shadow .08s; }
+    .cal-day:hover { transform: translateY(-3px); box-shadow: 0 4px 10px rgba(0,0,0,0.08); cursor:pointer; }
+    .cal-day.marked { background:#60a5fa; color:white; font-weight:600; }
+    .cal-day.today { border: 2px solid #2563eb; }
+    .weekday { font-weight:600; text-align:center; color:#374151; }
+    .grid-week { display:grid; grid-template-columns: repeat(7, 1fr); gap:0.5rem; align-items:start; }
+    .card { background:white; padding:1rem; border-radius:8px; box-shadow:0 1px 4px rgba(0,0,0,0.04); }
+    @media (max-width:768px){ .cal-day{ width:36px;height:36px;margin:2px;} .grid-week{ gap:0.25rem; } }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen text-gray-800">
+  <!-- HEADER -->
+  <header class="bg-white border-b py-3 px-6 flex items-center justify-between shadow-sm">
+    <div>
+      <h1 class="text-lg font-semibold">Operator</h1>
+      <div class="text-sm text-gray-500">Timesheet & Calendar</div>
+    </div>
+    <div class="flex items-center gap-3">
+      <button id="btnChangePwd" class="btn bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700">Change Password</button>
+      <button id="btnLogout" class="btn bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700">Logout</button>
+    </div>
+  </header>
+
+  <main class="p-6 max-w-4xl mx-auto">
+    <div class="card mb-4">
+      <div class="flex justify-between items-center mb-3">
+        <h2 class="text-lg font-semibold">New Entry</h2>
+        <button id="btnExport" class="bg-green-600 text-white px-3 py-1 rounded">Export CSV</button>
+      </div>
+
+      <div class="space-y-3">
+        <div>
+          <label class="text-sm font-medium">Date</label>
+          <input id="date" type="date" class="w-full border rounded p-2" />
+        </div>
+
+        <div>
+          <label class="text-sm font-medium">Task / Activity</label>
+          <input id="task" placeholder="Task / Activity" class="w-full border rounded p-2" />
+        </div>
+
+        <div class="grid grid-cols-3 gap-2">
+          <div>
+            <label class="text-sm font-medium">Start Time</label>
+            <input id="start" type="time" class="w-full border rounded p-2" />
+          </div>
+          <div>
+            <label class="text-sm font-medium">End Time</label>
+            <input id="end" type="time" class="w-full border rounded p-2" />
+          </div>
+          <div>
+            <label class="text-sm font-medium">Break (mins)</label>
+            <input id="breakmins" type="number" min="0" value="0" class="w-full border rounded p-2" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2">
+          <div>
+            <label class="text-sm font-medium">Rate (per hour)</label>
+            <input id="rate" type="number" min="0" step="0.01" value="0" class="w-full border rounded p-2" />
+          </div>
+          <div class="flex items-end">
+            <label class="flex items-center gap-2"><input id="billable" type="checkbox" checked /> Billable</label>
+          </div>
+          <div>
+            <label class="text-sm font-medium">Company</label>
+            <select id="company_select" class="w-full border rounded p-2"><option value="">-- Company (optional) --</option></select>
+          </div>
+        </div>
+
+        <div class="flex justify-between items-center">
+          <div id="calcInfo" class="text-sm text-gray-600"></div>
+          <div><button id="btnSave" class="bg-indigo-600 text-white px-4 py-2 rounded">Save</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="entries" class="space-y-3 mb-6"></div>
+
+    <div class="card">
+      <div class="flex justify-between items-center mb-3">
+        <h3 class="font-semibold">Calendar</h3>
+        <div class="flex items-center gap-2">
+          <button id="prevMonth" class="px-2 py-1 border rounded">«</button>
+          <div id="monthLabel" class="font-medium"></div>
+          <button id="nextMonth" class="px-2 py-1 border rounded">»</button>
+        </div>
+      </div>
+
+      <div id="weekdays" class="grid-week mb-2">
+        <div class="weekday">Sun</div><div class="weekday">Mon</div><div class="weekday">Tue</div><div class="weekday">Wed</div><div class="weekday">Thu</div><div class="weekday">Fri</div><div class="weekday">Sat</div>
+      </div>
+      <div id="calendarGrid" class="grid-week"></div>
+
+      <div id="dateEntries" class="mt-4"></div>
+    </div>
+  </main>
+
+  <!-- Change password modal -->
+  <div id="cpModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+    <div class="bg-white rounded-lg p-6 w-full max-w-md">
+      <h3 class="text-lg font-semibold mb-3">Change Password</h3>
+      <input id="oldPwd" type="password" placeholder="Old password" class="w-full border rounded p-2 mb-2" />
+      <input id="newPwd" type="password" placeholder="New password" class="w-full border rounded p-2 mb-2" />
+      <input id="confirmPwd" type="password" placeholder="Confirm new" class="w-full border rounded p-2 mb-2" />
+      <div class="flex justify-end gap-2 mt-3">
+        <button id="btnCloseCP" class="px-3 py-2 rounded border">Cancel</button>
+        <button id="btnDoChange" class="px-3 py-2 rounded bg-indigo-600 text-white">Change</button>
+      </div>
+      <div id="cpMsg" class="mt-2 text-sm"></div>
+    </div>
+  </div>
+
+<script>
+/* Helper */
+const $ = id => document.getElementById(id);
+
+/* Auth */
+const currentUser = JSON.parse(localStorage.getItem('user') || 'null');
+if(!currentUser || currentUser.role !== 'operator') window.location = 'login.html';
+
+/* DOM refs */
+const dateEl = $('date'), taskEl = $('task'), startEl = $('start'), endEl = $('end'), breakEl = $('breakmins'), rateEl = $('rate'), billableEl = $('billable'), companySel = $('company_select');
+const btnSave = $('btnSave'), entriesEl = $('entries'), calcInfo = $('calcInfo');
+
+/* Prefill */
+dateEl.value = new Date().toISOString().split('T')[0];
+
+/* Populate companies */
+async function populateCompanies(){
+  try {
+    const comps = await window.electronAPI.companyList();
+    companySel.innerHTML = '<option value="">-- Company (optional) --</option>';
+    comps.forEach(c=>{
+      const opt = document.createElement('option'); opt.value = c.id; opt.textContent = c.company_name;
+      if(currentUser.company_id && String(currentUser.company_id) === String(c.id)) opt.selected = true;
+      companySel.appendChild(opt);
+    });
+  } catch(e){ console.error('companyList', e); }
+}
+
+/* compute hours (digit-by-digit as required) */
+function computeHours(start, end, breakMins){
+  if(!start || !end) return null;
+  const sh = parseInt(start.split(':')[0],10), sm = parseInt(start.split(':')[1],10);
+  const eh = parseInt(end.split(':')[0],10), em = parseInt(end.split(':')[1],10);
+  const smins = sh*60 + sm, emins = eh*60 + em;
+  if(!Number.isFinite(smins) || !Number.isFinite(emins)) return null;
+  if(emins <= smins) return null;
+  const worked = emins - smins - (breakMins||0);
+  if(worked <= 0) return null;
+  const hours = worked / 60;
+  return { workedMinutes: worked, hours };
+}
+
+/* show calc */
+function showCalc(){
+  const comp = computeHours(startEl.value, endEl.value, Number(breakEl.value||0));
+  if(!comp){ calcInfo.textContent = ''; return; }
+  const rate = Number(rateEl.value||0);
+  const amount = Math.round(comp.hours * rate * 100)/100;
+  const h = Math.floor(comp.hours), m = Math.round((comp.hours - h)*60);
+  calcInfo.textContent = `Duration: ${h}h ${m}m — Amount: ₹${amount.toFixed(2)}`;
+}
+
+/* Save */
+btnSave.addEventListener('click', async ()=>{
+  const date = dateEl.value, task = taskEl.value.trim(), start = startEl.value, end = endEl.value;
+  const breakmins = parseInt(breakEl.value||0,10), rate = Number(rateEl.value||0), billable = billableEl.checked?1:0, company_id = companySel.value || null;
+  if(!date || !task || !start || !end){ alert('Please fill Date, Task, Start and End.'); return; }
+  const comp = computeHours(start, end, breakmins);
+  if(!comp){ alert('Invalid time range or break too long.'); return; }
+  const rawAmount = comp.hours * rate; const amount = Math.round(rawAmount*100)/100;
+
+  const payload = { user_id: currentUser.id, date, task, start_time: start, end_time: end, break_minutes: breakmins, billable, rate_per_hour: rate, billable_amount: amount, company_id };
+  const res = await window.electronAPI.timesheetAdd(payload);
+  if(!res.success){ alert(res.message || 'Save failed'); return; }
+
+  taskEl.value=''; startEl.value=''; endEl.value=''; breakEl.value=0; rateEl.value=0;
+  showCalc();
+  await loadEntries();
+  await buildCalendar(currentCalendarYear, currentCalendarMonth);
+});
+
+/* show calc while typing */
+[startEl, endEl, breakEl, rateEl].forEach(el => el.addEventListener && el.addEventListener('input', showCalc));
+
+/* Load entries */
+async function loadEntries(){
+  const rows = await window.electronAPI.timesheetGetByUser(currentUser.id);
+  entriesEl.innerHTML = rows.map(r=>`
+    <div class="card">
+      <div class="flex justify-between items-center">
+        <div>
+          <strong>${r.date}</strong> — ${r.task}
+          <div class="text-sm text-gray-600">Start: ${r.start_time} — End: ${r.end_time} — Break: ${r.break_minutes}m</div>
+          <div class="text-sm text-gray-600">Status: ${r.status || 'pending'}</div>
+        </div>
+        <div class="text-right">
+          <div class="text-sm text-gray-700">Amount: ₹${Number(r.billable_amount||0).toFixed(2)}</div>
+          <div class="text-sm text-gray-500">Company: ${r.company_name || r.company_id || 'N/A'}</div>
+        </div>
+      </div>
+      <div id="comments-${r.id}" class="mt-2"></div>
+    </div>
+  `).join('');
+
+  // load comments for each entry
+  rows.forEach(async r=>{
+    const el = $(`comments-${r.id}`);
+    if(!el) return;
+    const comments = await window.electronAPI.commentGetByTimesheet(r.id);
+    el.innerHTML = comments.length ? `<div class="text-sm text-gray-700 mt-2"><strong>Comments:</strong>` + comments.map(c=>`<div class="text-sm text-gray-600">[${c.commenter_role}] ${c.username||'Unknown'}: ${c.comment}</div>`).join('') + `</div>` : '';
+  });
+}
+
+/* Calendar */
+let currentCalendar = new Date();
+let currentCalendarYear = currentCalendar.getFullYear();
+let currentCalendarMonth = currentCalendar.getMonth();
+
+$('prevMonth').addEventListener('click', ()=> changeMonth(-1));
+$('nextMonth').addEventListener('click', ()=> changeMonth(1));
+
+function changeMonth(delta){
+  currentCalendarMonth += delta;
+  if(currentCalendarMonth < 0){ currentCalendarMonth = 11; currentCalendarYear -= 1; }
+  if(currentCalendarMonth > 11){ currentCalendarMonth = 0; currentCalendarYear += 1; }
+  buildCalendar(currentCalendarYear, currentCalendarMonth);
+}
+
+async function buildCalendar(year, month){
+  const rows = await window.electronAPI.timesheetGetByUser(currentUser.id);
+  const map = {};
+  rows.forEach(r => { (map[r.date] = map[r.date] || []).push(r); });
+
+  const first = new Date(year, month, 1), last = new Date(year, month+1, 0);
+  $('monthLabel').textContent = first.toLocaleString(undefined, { month:'long', year:'numeric' });
+
+  const grid = $('calendarGrid'); grid.innerHTML = '';
+  // blanks
+  for(let i=0;i<first.getDay();i++) grid.appendChild(document.createElement('div'));
+  for(let d=1; d<= last.getDate(); d++){
+    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const el = document.createElement('div'); el.className='cal-day'; el.textContent = d;
+    if(map[dateStr]){
+      el.classList.add('marked'); el.title = `${map[dateStr].length} entries`;
+      el.addEventListener('click', ()=> showDateEntries(dateStr, map[dateStr]));
+    } else {
+      el.addEventListener('click', ()=> showDateEntries(dateStr, []));
+    }
+    if(dateStr === new Date().toISOString().split('T')[0]) el.classList.add('today');
+    grid.appendChild(el);
+  }
+}
+
+function showDateEntries(dateStr, rows){
+  $('dateEntries').innerHTML = `<h4 class="font-semibold mb-2">Entries for ${dateStr}</h4>` + (rows.length ? rows.map(r=>`
+    <div class="p-2 border-b">
+      <div><strong>${r.task}</strong></div>
+      <div class="text-sm text-gray-600">${r.start_time} - ${r.end_time} | Break ${r.break_minutes}m | ₹${Number(r.billable_amount||0).toFixed(2)}</div>
+      <div class="text-sm text-gray-600">Company: ${r.company_name || r.company_id || 'N/A'}</div>
+    </div>
+  `).join('') : '<div class="text-sm text-gray-600">No entries</div>');
+}
+
+/* Change password modal */
+$('btnChangePwd').addEventListener('click', ()=> $('cpModal').classList.remove('hidden'));
+$('btnCloseCP').addEventListener('click', ()=> $('cpModal').classList.add('hidden'));
+$('btnDoChange').addEventListener('click', async ()=>{
+  const oldP = $('oldPwd').value, newP = $('newPwd').value, conf = $('confirmPwd').value;
+  const cpMsg = $('cpMsg'); cpMsg.textContent = '';
+  if(newP !== conf){ cpMsg.textContent = 'Passwords do not match'; return; }
+  const res = await window.electronAPI.userChangePassword({ userId: currentUser.id, oldPassword: oldP, newPassword: newP });
+  if(res.success){ cpMsg.textContent = 'Password changed — please login again.'; setTimeout(()=>{ localStorage.clear(); window.location='login.html'; }, 1200); }
+  else cpMsg.textContent = res.message || 'Error';
+});
+
+/* Export CSV */
+$('btnExport').addEventListener('click', async ()=>{
+  const rows = await window.electronAPI.timesheetGetByUser(currentUser.id);
+  const headers = ['Date','Task','Start','End','Break','Billable','Rate','Amount','Company'];
+  const csv = [headers, ...rows.map(r => [r.date, r.task, r.start_time, r.end_time, r.break_minutes, r.billable ? 'Yes':'No', r.rate_per_hour, r.billable_amount, r.company_name || r.company_id || ''])].map(a=>a.join(',')).join('\n');
+  const blob = new Blob([csv], { type:'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'timesheet.csv'; a.click();
+});
+
+/* Logout */
+$('btnLogout').addEventListener('click', ()=>{ localStorage.clear(); window.location='login.html'; });
+
+/* Init */
+(async ()=>{
+  await populateCompanies();
+  await loadEntries();
+  await buildCalendar(currentCalendarYear, currentCalendarMonth);
+  showCalc();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+{
+  "name": "timesheet-electron-sqljs",
+  "version": "1.0.0",
+  "description": "Timesheet manager desktop app (Electron + sql.js, no native modules)",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "sql.js": "^1.8.0",
+    "electron": "^26.6.10"
+  },
+  "devDependencies": {
+    "electron-builder": "^24.0.0"
+  }
+}
